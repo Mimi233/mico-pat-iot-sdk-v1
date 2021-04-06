@@ -29,8 +29,13 @@
 ******************************************************************************/
 
 #include "wifi.h"
-#include "RS_485.h"
+#include "./usart/bsp_usart.h"	
+#include "concrol.h"
+#include "./led/bsp_led.h" 
+#include "./lcd/bsp_ili9341_lcd.h"
 #ifdef WEATHER_ENABLE
+
+
 /**
  * @var    weather_choose
  * @brief  天气数据参数选择数组
@@ -61,7 +66,9 @@ const char *weather_choose[WEATHER_CHOOSE_CNT] = {
 };
 #endif
 
-
+unsigned char feed_plan[5];
+uint8_t MANUAL_FEED_FLAG = 0;
+uint8_t Light_Flag;
 /******************************************************************************
                               第一步:初始化
 1:在需要使用到wifi相关文件的文件中include "wifi.h"
@@ -88,6 +95,8 @@ const DOWNLOAD_CMD_S download_cmd[] =
   {DPID_WEIGHT, DP_TYPE_VALUE},
   {DPID_LIGHT, DP_TYPE_BOOL},
   {DPID_SWITCH, DP_TYPE_BOOL},
+  {DPID_TEMPERATURE, DP_TYPE_VALUE},
+  {DPID_HUMBUF, DP_TYPE_VALUE},
 };
 
 
@@ -105,7 +114,7 @@ const DOWNLOAD_CMD_S download_cmd[] =
 void uart_transmit_output(unsigned char value)
 {
 //    #error "请将MCU串口发送函数填入该函数,并删除该行"
-    UART_send_byte(value);
+    Usart_SendByte(USART1, value);
 /*
     //Example:
     extern void Uart_PutChar(unsigned char value);
@@ -139,22 +148,20 @@ void uart_transmit_output(unsigned char value)
  */
 void all_data_update(void)
 {
-//    #error "请在此处理可下发可上报数据及只上报数据示例,处理完成后删除该行"
-    /*
-    //此代码为平台自动生成，请按照实际数据修改每个可下发可上报函数和只上报函数
-    mcu_dp_raw_update(DPID_MEAL_PLAN,当前喂食计划指针,当前喂食计划数据长度); //RAW型数据上报;
-    mcu_dp_value_update(DPID_MANUAL_FEED,当前手动喂食); //VALUE型数据上报;
-    mcu_dp_bool_update(DPID_EXPORT_CALIBRATE,当前出粮校准); //BOOL型数据上报;
-    mcu_dp_bool_update(DPID_WEIGHT_CALIBRATE,当前余粮校准); //BOOL型数据上报;
-    mcu_dp_value_update(DPID_BATTERY_PERCENTAGE,当前电池电量); //VALUE型数据上报;
-    mcu_dp_bool_update(DPID_CHARGE_STATE,当前充电状态); //BOOL型数据上报;
-    mcu_dp_value_update(DPID_FEED_REPORT,当前喂食结果上报); //VALUE型数据上报;
-    mcu_dp_value_update(DPID_SURPLUS_GRAIN,当前粮桶余粮); //VALUE型数据上报;
-    mcu_dp_value_update(DPID_WEIGHT,当前余粮重量); //VALUE型数据上报;
-    mcu_dp_bool_update(DPID_LIGHT,当前小夜灯); //BOOL型数据上报;
-    mcu_dp_bool_update(DPID_SWITCH,当前开关); //BOOL型数据上报;
-
-    */
+    mcu_dp_raw_update(DPID_MEAL_PLAN,0,0); //RAW型数据上报;
+    mcu_dp_value_update(DPID_MANUAL_FEED,0); //VALUE型数据上报;
+    mcu_dp_bool_update(DPID_EXPORT_CALIBRATE,0); //BOOL型数据上报;
+    mcu_dp_bool_update(DPID_WEIGHT_CALIBRATE,0); //BOOL型数据上报;
+    mcu_dp_value_update(DPID_BATTERY_PERCENTAGE,0); //VALUE型数据上报;
+    mcu_dp_bool_update(DPID_CHARGE_STATE,0); //BOOL型数据上报;
+    mcu_dp_value_update(DPID_FEED_REPORT,0); //VALUE型数据上报;
+    mcu_dp_value_update(DPID_SURPLUS_GRAIN,0); //VALUE型数据上报;
+    mcu_dp_value_update(DPID_WEIGHT,0); //VALUE型数据上报;
+    mcu_dp_bool_update(DPID_LIGHT,Light_Flag); //BOOL型数据上报;
+    mcu_dp_bool_update(DPID_SWITCH,0); //BOOL型数据上报;
+    mcu_dp_value_update(DPID_TEMPERATURE,25); //VALUE型数据上报;
+    mcu_dp_value_update(DPID_HUMBUF,75); //VALUE型数据上报;
+   
 }
 
 
@@ -189,7 +196,7 @@ static unsigned char dp_download_meal_plan_handle(const unsigned char value[], u
 }
 /*****************************************************************************
 函数名称 : dp_download_manual_feed_handle
-功能描述 : 针对DPID_MANUAL_FEED的处理函数
+功能描述 : 针对DPID_MANUAL_FEED的处理函数  ***手动喂食***
 输入参数 : value:数据源数据
         : length:数据长度
 返回参数 : 成功返回:SUCCESS/失败返回:ERROR
@@ -206,7 +213,8 @@ static unsigned char dp_download_manual_feed_handle(const unsigned char value[],
     //VALUE类型数据处理
     
     */
-    
+    MANUAL_FEED_FLAG = 1;
+	motor_concrol_right(manual_feed);
     //处理完DP数据后应有反馈
     ret = mcu_dp_value_update(DPID_MANUAL_FEED,manual_feed);
     if(ret == SUCCESS)
@@ -231,9 +239,11 @@ static unsigned char dp_download_export_calibrate_handle(const unsigned char val
     
     export_calibrate = mcu_get_dp_download_bool(value,length);
     if(export_calibrate == 0) {
+//		GPIO_SetBits(LED3_GPIO_PORT, LED3_GPIO_PIN);
         //开关关
     }else {
         //开关开
+//		GPIO_ResetBits(LED3_GPIO_PORT, LED3_GPIO_PIN);
     }
   
     //处理完DP数据后应有反馈
@@ -290,8 +300,20 @@ static unsigned char dp_download_light_handle(const unsigned char value[], unsig
     light = mcu_get_dp_download_bool(value,length);
     if(light == 0) {
         //开关关
+		LED1_OFF;
+		Light_Flag = 0;
+		LCD_SetFont(&Font8x16);	
+		LCD_SetColors(RED,BLACK);
+		ILI9341_DispString_EN_CH(2*48,3*48,"Light Off");
+		mcu_dp_bool_update(DPID_LIGHT,0);
     }else {
         //开关开
+		LED1_ON;
+		Light_Flag = 1;
+		LCD_SetFont(&Font8x16);	
+		LCD_SetColors(RED,BLACK);
+		ILI9341_DispString_EN_CH(2*48,3*48,"Light  On");
+		mcu_dp_bool_update(DPID_LIGHT,1);
     }
   
     //处理完DP数据后应有反馈
@@ -360,11 +382,15 @@ unsigned char dp_download_handle(unsigned char dpid,const unsigned char value[],
     switch(dpid) {
         case DPID_MEAL_PLAN:
             //喂食计划处理函数
+
             ret = dp_download_meal_plan_handle(value,length);
         break;
         case DPID_MANUAL_FEED:
             //手动喂食处理函数
+//			MANUAL_FEED_FLAG = 1;
+//			motor_concrol_right(mcu_get_dp_download_value(value,length));
             ret = dp_download_manual_feed_handle(value,length);
+			
         break;
         case DPID_EXPORT_CALIBRATE:
             //出粮校准处理函数
@@ -383,7 +409,6 @@ unsigned char dp_download_handle(unsigned char dpid,const unsigned char value[],
             ret = dp_download_switch_handle(value,length);
         break;
 
-        
         default:
         break;
     }
@@ -457,7 +482,7 @@ unsigned char mcu_firm_update_handle(const unsigned char value[],unsigned long p
  */
 void mcu_get_greentime(unsigned char time[])
 {
-    #error "请自行完成相关代码,并删除该行"
+//    #error "请自行完成相关代码,并删除该行"
     /*
     time[0] 为是否获取时间成功标志，为 0 表示失败，为 1表示成功
     time[1] 为年份，0x00 表示 2000 年
@@ -485,7 +510,7 @@ void mcu_get_greentime(unsigned char time[])
  */
 void mcu_write_rtctime(unsigned char time[])
 {
-    #error "请自行完成RTC时钟写入代码,并删除该行"
+//    #error "请自行完成RTC时钟写入代码,并删除该行"
     /*
     Time[0] 为是否获取时间成功标志，为 0 表示失败，为 1表示成功
     Time[1] 为年份，0x00 表示 2000 年
@@ -666,27 +691,34 @@ void get_upload_syn_result(unsigned char result)
  */
 void get_wifi_status(unsigned char result)
 {
-  #error "请自行完成获取 WIFI 状态结果代码,并删除该行"
+//  #error "请自行完成获取 WIFI 状态结果代码,并删除该行"
  
     switch(result) {
         case 0:
-            //wifi工作状态1
+            //处于 Smart 配置状态，即 LED 快闪
+			Led_Blink_Quick();
         break;
     
         case 1:
-            //wifi工作状态2
+			//处于 AP 配置状态，即 LED 慢闪
+			Led_Blink_Slow();
         break;
         
         case 2:
-            //wifi工作状态3
+			//Wi-Fi 配置完成，正在连接路由器，即 LED 常暗
+			LED2_OFF;
         break;
         
         case 3:
-            //wifi工作状态4
+            //WIFI 已配置且连上路由器
+			LED1_ON;
         break;
         
         case 4:
-            //wifi工作状态5
+			LED2_ON;
+			LCD_SetFont(&Font8x16);	
+			LCD_SetColors(RED,BLACK);
+			ILI9341_DisplayStringEx(2*48,0*48,16,16,(uint8_t *)"Wifi connected",0);
         break;
         
         case 5:

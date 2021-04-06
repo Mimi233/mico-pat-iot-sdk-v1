@@ -167,7 +167,7 @@ wifi_connect_test_result内部有#err提示,完成函数后请删除该#err
 并在protocol.c文件wifi_test_result函数内查看结果,
 wifi_test_result内部有#err提示,完成函数后请删除该#err
 ******************************************************************************/
-//#define         GET_WIFI_STATUS_ENABLE                  //开启获取当前WIFI联网状态功能
+#define         GET_WIFI_STATUS_ENABLE                  //开启获取当前WIFI联网状态功能
 
 /******************************************************************************
                       12:MCU是否需要开启获取模块mac地址功能
@@ -296,7 +296,12 @@ BLE_test_result内部有#err提示,完成函数后请删除该#err
 //开关(可下发可上报)
 //备注:旋转食盒类宠物喂食器专用
 #define DPID_SWITCH 20
-
+//温度(只上报)
+//备注:温度的上报
+#define DPID_TEMPERATURE 101
+//湿度(只上报)
+//备注:湿度的上报
+#define DPID_HUMBUF 102
 
 
 /**
